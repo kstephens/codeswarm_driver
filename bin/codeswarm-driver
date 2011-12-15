@@ -1,0 +1,188 @@
+#!/bin/sh
+progdir="$(cd "$progdir" && /bin/pwd)"
+progdir="$(dirname $0)"
+set -xe
+export CODESWARM="${CODESWARM:-$HOME/local/src/codeswarm-read-only}"
+codeswarm="$CODESWARM"
+vcs="$1"; shift
+dir="$(cd "$1" && /bin/pwd)"; shift
+name="$1"; shift
+name="${name:-$(basename "$dir")}"
+workdir="$name-$vcs-codeswarm"
+log="data/$name.log"
+xml="$(/bin/pwd)/$workdir/data/$name.xml"
+config="data/$name.config"
+mkdir -p "$workdir/data"
+cd "$workdir"
+case "$vcs"
+in
+  git)
+    if [ ! -f "$log" ]
+    then
+      (
+        cd "$dir"
+        git log --name-status --pretty=format:'%n------------------------------------------------------------------------ %nr%h | %ae | %ai (%aD) | x lines%nChanged paths:' 
+      ) |
+      sed -E 's#@[-.0-9a-zA-Z]+com [|] # | #' > "$log"
+      rm -f "$xml"
+    fi
+  ;;
+esac
+if [ ! -f "$xml" ]
+then
+  case "$vcs"
+  in
+    p4)
+      (cd "$dir"
+      python "$codeswarm/convert_logs/convert_logs.py" --perforce-path '...' -o "$xml"
+      )
+    ;;
+    *)
+      python "$codeswarm/convert_logs/convert_logs.py" -g "$log" -o "$xml"
+    ;;
+  esac
+fi
+rm -rf "frames"
+mkdir -p "frames"
+cat <<EOF > "$config"
+# This is a sample configuration file for code_swarm
+
+# Frame width
+Width=1024
+
+# Frame height
+Height=768
+
+# Input file
+InputFile=$xml
+
+# Particle sprite file
+ParticleSpriteFile=$codeswarm/src/particle.png
+
+#Font Settings
+Font=SansSerif
+BoldFont=SansSerif
+InfoFont=SansSerif
+FontSize=10
+BoldFontSize=14
+InfoFontSize=20
+
+# Project time per frame
+MillisecondsPerFrame=21600000
+
+# Maximum number of Background processes
+MaxThreads=4
+
+# Optional Method instead of MillisecondsPerFrame
+#FramesPerDay=4
+
+# Background in R,G,B
+Background=0,0,0
+
+# Color assignment rules
+# Keep in order, do not skip numbers. Numbers start
+# at 1.
+# 
+# Pattern:  "Label", "regex", R,G,B, R,G,B
+# Label is optional.  If it is omitted, the regex
+# will be used.
+#
+ColorAssign1="gem", ".*\\.(gem|gemspec)|.*/gems/.*", 136,51,17, 136,51,17
+ColorAssign2="yaml", ".*\\.ya?ml$", 0,255,255, 0,255,255
+ColorAssign3="erb", ".*\\.(rhtml|erb)$", 102,0,255, 102,0,255
+ColorAssign4="html", ".*\\.html?$", 255,0,0, 255,0,0
+ColorAssign5="css,image", ".*\\.(css|sass|png|jpg|jpeg|gif|ico)$", 255,255,0, 255,255,0
+ColorAssign6="js", ".*\\.js$", 119,68,119, 119,68,119
+ColorAssign7="ruby", ".*\\.(rb|spec)$", 0,0,255, 0,0,255
+ColorAssign8="sh", ".*\\.(sh|bash)$", 250,110,110, 250,110,130
+ColorAssign9="sql", ".*\\.sql$", 238,102,68, 238,102,68
+ColorAssign10="data", ".*\\.(csv|xml|json)$", 238,68,119, 238,68,119
+
+# Save each frame to an image?
+TakeSnapshots=true
+
+# Where to save each frame
+SnapshotLocation=frames/code_swarm-#####.png
+
+# Draw names (combinatory) :
+# Draw sharp names?
+DrawNamesSharp=true
+# And draw a glow around names? (Runs slower)
+DrawNamesHalos=false
+
+# Draw files (combinatory) :
+# Draw sharp files
+DrawFilesSharp=false
+# Draw fuzzy files
+DrawFilesFuzzy=true
+# Draw jelly files
+DrawFilesJelly=false
+
+# Show the Legend at start
+ShowLegend=true
+
+# Show the History at start
+ShowHistory=true
+
+# Show the Activity histogram at bottom
+ShowActivity=false
+
+# Show the Date at start
+ShowDate=true
+
+# Show edges between authors and files, mostly for debug purpose
+ShowEdges=false
+
+# Turn on Debug counts.
+ShowDebug=false
+
+# Natural distance of files to people
+EdgeLength=25
+
+# Amount of life to decrement
+EdgeDecrement=-2
+FileDecrement=-2
+PersonDecrement=-1
+
+#Speeds.
+#Optional: NodeSpeed=7.0, If used, FileSpeed and PersonSpeed need not be set.
+#
+FileSpeed=7.0
+PersonSpeed=2.0
+
+#Masses
+FileMass=1.0
+PersonMass=10.0
+
+# Life of an Edge
+EdgeLife=250
+
+# Life of a File
+FileLife=200
+
+# Life of a Person
+PersonLife=255
+
+# Highlight percent.
+# This is the amount of time that the person or
+# file will be highlighted.
+HighlightPct=5
+
+## Physics engine selection and configuration
+# Directory physics engine config files reside in.
+PhysicsEngineConfigDir=$codeswarm/physics_engine
+# Force calculation algorithms ("PhysicsEngineLegacy", "PhysicsEngineSimple"...) :
+PhysicsEngineSelection=PhysicsEngineLegacy
+
+# OpenGL is experimental. Use at your own risk.
+UseOpenGL=false
+
+EOF
+"$progdir/codeswarm" "$config"
+mov="$name-$vcs-codeswarm.mov"
+if [ ! -f "$mov" ]
+then
+  ffmpeg -f image2 -r 24 -i frames/code_swarm-%05d.png -sameq "$mov" -pass 2
+fi
+exit 0
+
